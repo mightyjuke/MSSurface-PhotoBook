@@ -111,6 +111,20 @@ input[role="switch"]::after { background: white; border-radius: 50%; content: ""
 input[role="switch"]:checked { background: var(--accent); }
 input[role="switch"]:checked::after { transform: translateX(20px); }
 .save-button { margin-top: .35rem; width: 100%; }
+.software-section { border-top: 1px solid var(--line); padding: 1.5rem; }
+.software-heading { align-items: center; display: flex; justify-content: space-between; }
+.software-heading h3 { font-family: Georgia, serif; font-size: 1.35rem; font-weight: 400; margin: .3rem 0 0; }
+.status-chip { background: #eee9e1; border-radius: 999px; color: var(--muted); font-size: .68rem; font-weight: 800; padding: .4rem .65rem; text-transform: capitalize; }
+.status-chip.checking, .status-chip.queued { background: #f7ead3; color: #84581d; }
+.status-chip.current, .status-chip.updated { background: #e3efe3; color: #35613a; }
+.status-chip.error { background: #f8e5e1; color: #8b3627; }
+.software-details { display: grid; gap: .65rem; margin: 1.15rem 0 .8rem; }
+.software-details div { display: grid; gap: .6rem; grid-template-columns: 80px minmax(0, 1fr); }
+.software-details dt { color: var(--muted); font-size: .72rem; font-weight: 750; }
+.software-details dd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .72rem; margin: 0; overflow-wrap: anywhere; text-align: right; }
+.update-message { color: var(--muted); font-size: .76rem; line-height: 1.45; margin: 0 0 1rem; }
+.update-switch { margin-top: 0; }
+.check-update-button { margin-top: 1rem; width: 100%; }
 
 .notice { background: #e6f1e6; border: 1px solid #b8d3b9; border-radius: 10px; color: #355e38; margin: 0 0 1rem; padding: .85rem 1rem; }
 .notice.error { background: #f8e5e1; border-color: #e6bbb1; color: #8b3627; }

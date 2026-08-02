@@ -46,6 +46,7 @@ install -m 0644 "$script_dir/photobook-kiosk.desktop" /etc/xdg/autostart/photobo
 install -m 0755 "$script_dir/photobook-update" /usr/local/sbin/photobook-update
 install -m 0644 "$script_dir/photobook-update.service" /etc/systemd/system/photobook-update.service
 install -m 0644 "$script_dir/photobook-update.timer" /etc/systemd/system/photobook-update.timer
+install -m 0644 "$script_dir/photobook-update.path" /etc/systemd/system/photobook-update.path
 
 cat > /etc/default/photobook <<EOF
 PHOTOBOOK_ADDRESS="0.0.0.0:8080"
@@ -61,5 +62,6 @@ chmod 0644 /etc/default/photobook-updater
 systemctl daemon-reload
 systemctl enable --now photobook.service
 systemctl enable --now photobook-update.timer
+systemctl enable --now photobook-update.path
 
 echo "PHOTOBOOK_ADMIN_PASSWORD=$PHOTOBOOK_PASSWORD"

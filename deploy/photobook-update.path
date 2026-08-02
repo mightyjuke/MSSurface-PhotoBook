@@ -1,0 +1,9 @@
+[Unit]
+Description=Run PhotoBook update when requested from the admin dashboard
+
+[Path]
+PathExists=/var/lib/photobook/update-requested
+Unit=photobook-update.service
+
+[Install]
+WantedBy=multi-user.target

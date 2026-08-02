@@ -38,6 +38,12 @@
     const confirmMessage = document.querySelector('#confirm-message');
     const confirmCancel = document.querySelector('#confirm-cancel');
     const confirmRemove = document.querySelector('#confirm-remove');
+    const softwareVersion = document.querySelector('#software-version');
+    const updateState = document.querySelector('#update-state');
+    const updateCheckedAt = document.querySelector('#update-checked-at');
+    const updateMessage = document.querySelector('#update-message');
+    const autoUpdate = document.querySelector('#auto-update');
+    const checkUpdate = document.querySelector('#check-update');
     let state;
     let draggedCard = null;
     let savingOrder = false;
@@ -95,6 +101,67 @@
       document.querySelector('#library-size').textContent = formatBytes(bytes);
       document.querySelector('#interval-summary').textContent = `${current.config.intervalSeconds} sec`;
     }
+
+    function renderUpdateStatus(status) {
+      softwareVersion.textContent = status.currentVersion || 'Unknown';
+      autoUpdate.checked = status.enabled;
+      updateState.textContent = status.state || 'idle';
+      updateState.className = `status-chip ${status.state || 'idle'}`;
+      updateMessage.textContent = status.message || 'No update status is available.';
+      updateCheckedAt.textContent = status.checkedAt
+        ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.checkedAt))
+        : 'Never';
+    }
+
+    async function loadUpdateStatus() {
+      const status = await api('/api/admin/update');
+      renderUpdateStatus(status);
+      return status;
+    }
+
+    autoUpdate.addEventListener('change', async () => {
+      const enabled = autoUpdate.checked;
+      autoUpdate.disabled = true;
+      try {
+        const status = await api('/api/admin/update', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        renderUpdateStatus(status);
+        notify(`Automatic updates ${enabled ? 'enabled' : 'disabled'}.`);
+      } catch (error) {
+        autoUpdate.checked = !enabled;
+        notify(error.message, true);
+      } finally { autoUpdate.disabled = false; }
+    });
+
+    checkUpdate.addEventListener('click', async () => {
+      const startingVersion = softwareVersion.textContent;
+      checkUpdate.disabled = true;
+      checkUpdate.textContent = 'Checking…';
+      try {
+        renderUpdateStatus(await api('/api/admin/update/check', { method: 'POST' }));
+        for (let attempt = 0; attempt < 45; attempt++) {
+          await new Promise(resolve => window.setTimeout(resolve, 2000));
+          let status;
+          try { status = await loadUpdateStatus(); } catch (_) { continue; }
+          if (status.currentVersion && status.currentVersion !== startingVersion) {
+            location.reload();
+            return;
+          }
+          if (!['queued', 'checking'].includes(status.state)) {
+            notify(status.message, status.state === 'error');
+            return;
+          }
+        }
+        notify('The update check is still running. Its result will appear here shortly.');
+      } catch (error) { notify(error.message, true); }
+      finally {
+        checkUpdate.disabled = false;
+        checkUpdate.textContent = 'Check for updates';
+      }
+    });
 
     function renderPhotos(photos) {
       const grid = document.querySelector('#photo-grid');
@@ -323,7 +390,7 @@
       notice.timer = setTimeout(() => { notice.hidden = true; }, 4500);
     }
 
-    try { await refresh(); } catch (error) { notify(error.message, true); }
+    try { await Promise.all([refresh(), loadUpdateStatus()]); } catch (error) { notify(error.message, true); }
   }
 
   async function initDisplay() {

@@ -91,7 +91,7 @@ It installs the server as `photobook.service` and adds the same desktop kiosk au
 
 ## Automatic updates
 
-Every push to `main` runs the test suite, builds the Linux ARMv7 binary, and publishes it with a SHA-256 checksum to the stable `edge` prerelease. Installed Raspberry Pi OS devices check that release approximately every 15 minutes; postmarketOS devices use the system periodic scheduler.
+Every push to `main` runs the test suite, builds the Linux ARMv7 binary, and publishes it with a SHA-256 checksum to the stable `edge` prerelease. Installed Raspberry Pi OS devices check that release approximately every 15 minutes; postmarketOS devices use the system periodic scheduler. The admin dashboard shows the running version, the latest check result, an automatic-update toggle, and a manual **Check for updates** button.
 
 The updater:
 
@@ -114,8 +114,8 @@ sudo systemctl start photobook-update.service
 # Read update results
 journalctl -u photobook-update.service
 
-# Disable automatic updates
-sudo systemctl disable --now photobook-update.timer
+# Disable automatic updates without removing the dashboard controls
+sudo touch /var/lib/photobook/updates-disabled
 ```
 
 The release source can be changed in `/etc/default/photobook-updater`. No GitHub token is required while the configured repository and release remain public.

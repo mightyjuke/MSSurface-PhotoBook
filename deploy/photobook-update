@@ -8,11 +8,15 @@ if [ -r "$config_file" ]; then
 fi
 
 base_url=${PHOTOBOOK_UPDATE_BASE_URL:-https://github.com/mightyjuke/MSSurface-PhotoBook/releases/download/edge}
+data_dir=${PHOTOBOOK_DATA_DIR:-/var/lib/photobook}
 binary_url="$base_url/photobook-armv7"
 checksum_url="$base_url/photobook-armv7.sha256"
 installed_binary=/usr/local/bin/photobook
 rollback_binary=/usr/local/bin/photobook.rollback
 health_url=http://127.0.0.1:8080/health
+disabled_marker="$data_dir/updates-disabled"
+request_marker="$data_dir/update-requested"
+status_file="$data_dir/update-status.json"
 
 log() {
     logger -t photobook-update -- "$*" 2>/dev/null || true
@@ -27,23 +31,54 @@ restart_photobook() {
     fi
 }
 
+write_status() {
+    state=$1
+    message=$2
+    checked_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    status_tmp="$data_dir/.update-status.$$"
+    printf '{"state":"%s","message":"%s","checkedAt":"%s"}\n' \
+        "$state" "$message" "$checked_at" > "$status_tmp"
+    chmod 0644 "$status_tmp"
+    mv -f "$status_tmp" "$status_file"
+}
+
+fail() {
+    log "$1"
+    write_status error "$1"
+    exit 1
+}
+
+manual_check=false
+if [ -f "$request_marker" ]; then
+    manual_check=true
+    rm -f -- "$request_marker"
+fi
+if [ "$manual_check" = false ] && [ -f "$disabled_marker" ]; then
+    log "Automatic PhotoBook updates are disabled"
+    exit 0
+fi
+
+write_status checking "Checking GitHub for a new PhotoBook version."
+
 temp_dir=$(mktemp -d /tmp/photobook-update.XXXXXX)
 trap 'rm -rf -- "$temp_dir"' EXIT HUP INT TERM
 candidate="$temp_dir/photobook-armv7"
 checksum_file="$temp_dir/photobook-armv7.sha256"
 
-curl -fsSL --retry 3 --connect-timeout 15 -o "$checksum_file" "$checksum_url"
-curl -fsSL --retry 3 --connect-timeout 15 -o "$candidate" "$binary_url"
+if ! curl -fsSL --retry 3 --connect-timeout 15 -o "$checksum_file" "$checksum_url"; then
+    fail "Could not download the PhotoBook release checksum."
+fi
+if ! curl -fsSL --retry 3 --connect-timeout 15 -o "$candidate" "$binary_url"; then
+    fail "Could not download the PhotoBook update."
+fi
 
 expected=$(awk 'NR == 1 { print $1 }' "$checksum_file")
 if ! printf '%s\n' "$expected" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-    log "Refusing update: release checksum is invalid"
-    exit 1
+    fail "Refusing update: release checksum is invalid."
 fi
 actual=$(sha256sum "$candidate" | awk '{ print $1 }')
 if [ "$actual" != "$expected" ]; then
-    log "Refusing update: downloaded binary failed SHA-256 verification"
-    exit 1
+    fail "Refusing update: downloaded binary failed SHA-256 verification."
 fi
 
 current=""
@@ -52,14 +87,16 @@ if [ -f "$installed_binary" ]; then
 fi
 if [ "$current" = "$actual" ]; then
     log "PhotoBook is already current ($actual)"
+    write_status current "PhotoBook is already current."
     exit 0
 fi
 
 chmod 0755 "$candidate"
-candidate_version=$("$candidate" --version)
+if ! candidate_version=$("$candidate" --version); then
+    fail "Refusing update: candidate could not report its version."
+fi
 if [ -z "$candidate_version" ]; then
-    log "Refusing update: candidate did not report a version"
-    exit 1
+    fail "Refusing update: candidate did not report a version."
 fi
 
 if [ -f "$installed_binary" ]; then
@@ -74,16 +111,19 @@ while [ "$attempt" -lt 20 ]; do
     if curl -fsS --max-time 2 "$health_url" | grep -q '"status":"ok"'; then
         rm -f -- "$rollback_binary"
         log "Updated PhotoBook to $candidate_version ($actual)"
+        write_status updated "Updated PhotoBook to $candidate_version."
         exit 0
     fi
     attempt=$((attempt + 1))
     sleep 1
 done
 
-log "Update health check failed; rolling back"
+message="The update failed its health check and was rolled back."
+log "$message"
 if [ -f "$rollback_binary" ]; then
     install -o root -g root -m 0755 "$rollback_binary" "$installed_binary"
     rm -f -- "$rollback_binary"
     restart_photobook
 fi
+write_status error "$message"
 exit 1

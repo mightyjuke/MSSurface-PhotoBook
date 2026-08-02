@@ -11,6 +11,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -82,6 +84,63 @@ func TestWebAssetsRequireRevalidation(t *testing.T) {
 	}
 	if got := res.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("Cache-Control = %q, want no-cache", got)
+	}
+}
+
+func TestAdminUpdateControls(t *testing.T) {
+	store, handler := testApp(t, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/update", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("initial status = %d; body = %s", res.Code, res.Body.String())
+	}
+	var status UpdateStatus
+	if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Enabled || status.CurrentVersion != buildVersion {
+		t.Fatalf("unexpected initial update status: %+v", status)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/admin/update", bytes.NewBufferString(`{"enabled":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("disable status = %d; body = %s", res.Code, res.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(store.dataDir, "updates-disabled")); err != nil {
+		t.Fatalf("disabled marker: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/update/check", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("check status = %d; body = %s", res.Code, res.Body.String())
+	}
+	status = UpdateStatus{}
+	if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "queued" || status.Enabled {
+		t.Fatalf("unexpected queued update status: %+v", status)
+	}
+	if _, err := os.Stat(filepath.Join(store.dataDir, "update-requested")); err != nil {
+		t.Fatalf("request marker: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/admin/update", bytes.NewBufferString(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("enable status = %d; body = %s", res.Code, res.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(store.dataDir, "updates-disabled")); !os.IsNotExist(err) {
+		t.Fatalf("disabled marker remained: %v", err)
 	}
 }
 

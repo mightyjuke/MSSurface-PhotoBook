@@ -124,6 +124,31 @@
             </label>
             <button class="button save-button" type="submit">Save settings</button>
           </form>
+          <section class="software-section" aria-labelledby="software-heading">
+            <div class="software-heading">
+              <div>
+                <p class="eyebrow">SOFTWARE</p>
+                <h3 id="software-heading">Updates</h3>
+              </div>
+              <span id="update-state" class="status-chip">Loading</span>
+            </div>
+            <dl class="software-details">
+              <div>
+                <dt>Version</dt>
+                <dd id="software-version">—</dd>
+              </div>
+              <div>
+                <dt>Last checked</dt>
+                <dd id="update-checked-at">Never</dd>
+              </div>
+            </dl>
+            <p id="update-message" class="update-message">Loading update status…</p>
+            <label class="switch-row update-switch">
+              <span><strong>Automatic updates</strong><small>Check GitHub about every 15 minutes</small></span>
+              <input id="auto-update" type="checkbox" role="switch">
+            </label>
+            <button id="check-update" class="button secondary check-update-button" type="button">Check for updates</button>
+          </section>
         </aside>
       </div>
     </div>

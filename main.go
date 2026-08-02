@@ -62,6 +62,14 @@ type persistedState struct {
 	Version string  `json:"version,omitempty"`
 }
 
+type UpdateStatus struct {
+	CurrentVersion string `json:"currentVersion"`
+	Enabled        bool   `json:"enabled"`
+	State          string `json:"state"`
+	Message        string `json:"message"`
+	CheckedAt      string `json:"checkedAt,omitempty"`
+}
+
 type Store struct {
 	mu          sync.RWMutex
 	renditionMu sync.Mutex
@@ -113,6 +121,68 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("invalid stored config: %w", err)
 	}
 	return s, nil
+}
+
+func (s *Store) GetUpdateStatus() UpdateStatus {
+	status := UpdateStatus{
+		CurrentVersion: buildVersion,
+		Enabled:        !fileExists(filepath.Join(s.dataDir, "updates-disabled")),
+		State:          "idle",
+		Message:        "No update check has run yet.",
+	}
+	b, err := os.ReadFile(filepath.Join(s.dataDir, "update-status.json"))
+	if err == nil {
+		var stored UpdateStatus
+		if json.Unmarshal(b, &stored) == nil {
+			status.State = stored.State
+			status.Message = stored.Message
+			status.CheckedAt = stored.CheckedAt
+		}
+	}
+	return status
+}
+
+func (s *Store) SetAutoUpdate(enabled bool) error {
+	marker := filepath.Join(s.dataDir, "updates-disabled")
+	if enabled {
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(marker, []byte("Automatic updates disabled from the PhotoBook admin UI.\n"), 0640)
+}
+
+func (s *Store) RequestUpdate() error {
+	status := UpdateStatus{State: "queued", Message: "Update check requested."}
+	if err := s.writeUpdateStatus(status); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dataDir, "update-requested"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0640)
+}
+
+func (s *Store) writeUpdateStatus(status UpdateStatus) error {
+	b, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(s.dataDir, ".update-status-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, filepath.Join(s.dataDir, "update-status.json"))
 }
 
 func (s *Store) Snapshot() persistedState {
@@ -460,6 +530,9 @@ func (a *App) Handler() http.Handler {
 	mux.Handle("DELETE /api/admin/photos", a.requireAdmin(http.HandlerFunc(a.deletePhotos)))
 	mux.Handle("PUT /api/admin/photos/order", a.requireAdmin(http.HandlerFunc(a.putPhotoOrder)))
 	mux.Handle("DELETE /api/admin/photos/{id}", a.requireAdmin(http.HandlerFunc(a.deletePhoto)))
+	mux.Handle("GET /api/admin/update", a.requireAdmin(http.HandlerFunc(a.getUpdateStatus)))
+	mux.Handle("PUT /api/admin/update", a.requireAdmin(http.HandlerFunc(a.putUpdateSettings)))
+	mux.Handle("POST /api/admin/update/check", a.requireAdmin(http.HandlerFunc(a.postUpdateCheck)))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -475,6 +548,43 @@ func (a *App) getFrame(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *App) getState(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.store.Snapshot())
+}
+
+func (a *App) getUpdateStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.store.GetUpdateStatus())
+}
+
+func (a *App) putUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "invalid request origin")
+		return
+	}
+	var request struct {
+		Enabled bool `json:"enabled"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 8<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid update setting")
+		return
+	}
+	if err := a.store.SetAutoUpdate(request.Enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not change automatic updates")
+		return
+	}
+	writeJSON(w, http.StatusOK, a.store.GetUpdateStatus())
+}
+
+func (a *App) postUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "invalid request origin")
+		return
+	}
+	if err := a.store.RequestUpdate(); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not request an update check")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, a.store.GetUpdateStatus())
 }
 
 func (a *App) getMedia(w http.ResponseWriter, r *http.Request) {
