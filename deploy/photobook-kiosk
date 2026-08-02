@@ -1,0 +1,31 @@
+#!/bin/sh
+
+# The desktop autostarts this script after X11 is ready.
+xset s off
+xset s noblank
+xset -dpms
+
+attempt=0
+while [ "$attempt" -lt 30 ]; do
+    if wget -q -O /dev/null http://127.0.0.1:8080/health; then
+        break
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+done
+
+browser=$(command -v chromium || command -v chromium-browser || true)
+if [ -z "$browser" ]; then
+    echo "PhotoBook kiosk: Chromium is not installed" >&2
+    exit 1
+fi
+
+exec "$browser" \
+    --kiosk \
+    --no-first-run \
+    --disable-translate \
+    --disable-session-crashed-bubble \
+    --disable-infobars \
+    --password-store=basic \
+    --disk-cache-size=52428800 \
+    http://127.0.0.1:8080/display/

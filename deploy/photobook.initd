@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+name="PhotoBook"
+description="Local digital photo frame server"
+command="/usr/local/bin/photobook"
+command_user="photobook:photobook"
+command_background="yes"
+pidfile="/run/photobook.pid"
+output_log="/var/log/photobook.log"
+error_log="/var/log/photobook.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath --directory --owner photobook:photobook --mode 0750 /var/lib/photobook
+    checkpath --file --owner photobook:photobook --mode 0640 /var/log/photobook.log
+}

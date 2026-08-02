@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=PhotoBook kiosk
+Comment=Open the local PhotoBook slideshow
+Exec=/usr/local/bin/photobook-kiosk
+Terminal=false
+X-GNOME-Autostart-enabled=true
