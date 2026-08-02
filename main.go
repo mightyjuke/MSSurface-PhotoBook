@@ -31,6 +31,8 @@ import (
 
 const maxUploadBytes = 512 << 20
 
+var buildVersion = "dev"
+
 //go:embed web/*
 var webFiles embed.FS
 
@@ -55,8 +57,9 @@ type Photo struct {
 }
 
 type persistedState struct {
-	Config Config  `json:"config"`
-	Photos []Photo `json:"photos"`
+	Config  Config  `json:"config"`
+	Photos  []Photo `json:"photos"`
+	Version string  `json:"version,omitempty"`
 }
 
 type Store struct {
@@ -116,6 +119,7 @@ func (s *Store) Snapshot() persistedState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := s.state
+	out.Version = buildVersion
 	out.Photos = append([]Photo{}, s.state.Photos...)
 	for i := range out.Photos {
 		out.Photos[i].URL = "/media/" + out.Photos[i].ID
@@ -442,7 +446,7 @@ func (a *App) Handler() http.Handler {
 		a.web.ServeHTTP(w, r)
 	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": buildVersion})
 	})
 	mux.HandleFunc("GET /api/frame", a.getFrame)
 	mux.HandleFunc("GET /media/{id}", a.getMedia)
@@ -716,6 +720,10 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(buildVersion)
+		return
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	dataDir := envOr("PHOTOBOOK_DATA_DIR", "./data")
 	address := envOr("PHOTOBOOK_ADDRESS", ":8080")
@@ -730,7 +738,7 @@ func main() {
 	}
 	server := &http.Server{Addr: address, Handler: NewApp(store, password, logger).Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 	go func() {
-		logger.Info("PhotoBook is ready", "address", address, "data", dataDir, "go", runtime.Version())
+		logger.Info("PhotoBook is ready", "address", address, "data", dataDir, "version", buildVersion, "go", runtime.Version())
 		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stopped", "error", err)
 			os.Exit(1)

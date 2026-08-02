@@ -26,7 +26,7 @@ if [ -z "${PHOTOBOOK_PASSWORD:-}" ]; then
 fi
 
 echo "Installing Chromium and X11 utilities..."
-apk add chromium xset iw
+apk add chromium xset iw curl ca-certificates
 
 if ! id photobook >/dev/null 2>&1; then
     adduser -S -D -H -h /var/lib/photobook photobook
@@ -36,6 +36,9 @@ install -m 0755 "$binary_path" /usr/local/bin/photobook
 install -m 0755 "$script_dir/photobook-kiosk" /usr/local/bin/photobook-kiosk
 install -m 0755 "$script_dir/photobook.initd" /etc/init.d/photobook
 install -m 0644 "$script_dir/photobook-kiosk.desktop" /etc/xdg/autostart/photobook-kiosk.desktop
+install -m 0755 "$script_dir/photobook-update" /usr/local/sbin/photobook-update
+install -d -m 0755 /etc/periodic/15min
+install -m 0755 "$script_dir/photobook-update-periodic" /etc/periodic/15min/photobook-update
 install -d -o photobook -g photobook -m 0750 /var/lib/photobook
 
 # Surface RT Wi-Fi can disappear after power-saving events. The device's
@@ -53,9 +56,15 @@ export PHOTOBOOK_DATA_DIR="/var/lib/photobook"
 export PHOTOBOOK_ADMIN_PASSWORD="$PHOTOBOOK_PASSWORD"
 EOF
 chmod 0640 /etc/conf.d/photobook
+install -d -m 0755 /etc/default
+cat > /etc/default/photobook-updater <<'EOF'
+PHOTOBOOK_UPDATE_BASE_URL="https://github.com/mightyjuke/MSSurface-PhotoBook/releases/download/edge"
+EOF
+chmod 0644 /etc/default/photobook-updater
 
 rc-update add photobook default
 rc-update add local default
+rc-update add crond default
 rc-service photobook restart
 
 echo

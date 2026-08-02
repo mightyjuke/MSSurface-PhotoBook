@@ -42,6 +42,9 @@ func TestFrameStartsEmpty(t *testing.T) {
 	if len(state.Photos) != 0 || state.Config.IntervalSeconds != 12 {
 		t.Fatalf("unexpected initial state: %+v", state)
 	}
+	if state.Version != buildVersion {
+		t.Fatalf("version = %q, want %q", state.Version, buildVersion)
+	}
 }
 
 func TestAdminRequiresPassword(t *testing.T) {

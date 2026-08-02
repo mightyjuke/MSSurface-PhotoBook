@@ -1,0 +1,89 @@
+#!/bin/sh
+set -eu
+
+config_file=/etc/default/photobook-updater
+if [ -r "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+fi
+
+base_url=${PHOTOBOOK_UPDATE_BASE_URL:-https://github.com/mightyjuke/MSSurface-PhotoBook/releases/download/edge}
+binary_url="$base_url/photobook-armv7"
+checksum_url="$base_url/photobook-armv7.sha256"
+installed_binary=/usr/local/bin/photobook
+rollback_binary=/usr/local/bin/photobook.rollback
+health_url=http://127.0.0.1:8080/health
+
+log() {
+    logger -t photobook-update -- "$*" 2>/dev/null || true
+    echo "$*"
+}
+
+restart_photobook() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart photobook.service
+    else
+        rc-service photobook restart
+    fi
+}
+
+temp_dir=$(mktemp -d /tmp/photobook-update.XXXXXX)
+trap 'rm -rf -- "$temp_dir"' EXIT HUP INT TERM
+candidate="$temp_dir/photobook-armv7"
+checksum_file="$temp_dir/photobook-armv7.sha256"
+
+curl -fsSL --retry 3 --connect-timeout 15 -o "$checksum_file" "$checksum_url"
+curl -fsSL --retry 3 --connect-timeout 15 -o "$candidate" "$binary_url"
+
+expected=$(awk 'NR == 1 { print $1 }' "$checksum_file")
+if ! printf '%s\n' "$expected" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+    log "Refusing update: release checksum is invalid"
+    exit 1
+fi
+actual=$(sha256sum "$candidate" | awk '{ print $1 }')
+if [ "$actual" != "$expected" ]; then
+    log "Refusing update: downloaded binary failed SHA-256 verification"
+    exit 1
+fi
+
+current=""
+if [ -f "$installed_binary" ]; then
+    current=$(sha256sum "$installed_binary" | awk '{ print $1 }')
+fi
+if [ "$current" = "$actual" ]; then
+    log "PhotoBook is already current ($actual)"
+    exit 0
+fi
+
+chmod 0755 "$candidate"
+candidate_version=$("$candidate" --version)
+if [ -z "$candidate_version" ]; then
+    log "Refusing update: candidate did not report a version"
+    exit 1
+fi
+
+if [ -f "$installed_binary" ]; then
+    cp -p "$installed_binary" "$rollback_binary"
+fi
+install -o root -g root -m 0755 "$candidate" "$installed_binary.new"
+mv -f "$installed_binary.new" "$installed_binary"
+restart_photobook
+
+attempt=0
+while [ "$attempt" -lt 20 ]; do
+    if curl -fsS --max-time 2 "$health_url" | grep -q '"status":"ok"'; then
+        rm -f -- "$rollback_binary"
+        log "Updated PhotoBook to $candidate_version ($actual)"
+        exit 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+done
+
+log "Update health check failed; rolling back"
+if [ -f "$rollback_binary" ]; then
+    install -o root -g root -m 0755 "$rollback_binary" "$installed_binary"
+    rm -f -- "$rollback_binary"
+    restart_photobook
+fi
+exit 1

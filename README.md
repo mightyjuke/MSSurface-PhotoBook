@@ -14,6 +14,7 @@ The application is deliberately one ARMv7 binary with embedded HTML, CSS, and Ja
 - OpenRC service and XFCE autostart entry
 - Windows-to-Linux ARMv7 cross-build script
 - Surface RT Wi-Fi power-saving workaround
+- Checksum-verified automatic updates from GitHub with health-check rollback
 
 ## Important hardware check
 
@@ -87,6 +88,37 @@ sudo PHOTOBOOK_PASSWORD='choose-a-long-password' sh deploy/install-raspios.sh di
 ```
 
 It installs the server as `photobook.service` and adds the same desktop kiosk autostart entry. Desktop automatic login must be enabled for the kiosk browser to open after boot.
+
+## Automatic updates
+
+Every push to `main` runs the test suite, builds the Linux ARMv7 binary, and publishes it with a SHA-256 checksum to the stable `edge` prerelease. Installed Raspberry Pi OS devices check that release approximately every 15 minutes; postmarketOS devices use the system periodic scheduler.
+
+The updater:
+
+1. Downloads the binary and checksum over HTTPS from the public GitHub release.
+2. Refuses files whose checksum does not match.
+3. Skips installation when the binary is already current.
+4. Replaces the executable atomically and restarts PhotoBook.
+5. Waits for the local health endpoint and restores the previous binary if startup fails.
+6. Causes an open kiosk to reload itself when it observes a new build version.
+
+On Raspberry Pi OS:
+
+```sh
+# Check the schedule
+systemctl list-timers photobook-update.timer
+
+# Check immediately
+sudo systemctl start photobook-update.service
+
+# Read update results
+journalctl -u photobook-update.service
+
+# Disable automatic updates
+sudo systemctl disable --now photobook-update.timer
+```
+
+The release source can be changed in `/etc/default/photobook-updater`. No GitHub token is required while the configured repository and release remain public.
 
 ## Add photos from another device
 

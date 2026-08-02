@@ -17,7 +17,9 @@ try {
     $env:GOARCH = "arm"
     $env:GOARM = "7"
     $env:CGO_ENABLED = "0"
-    go build -trimpath -ldflags="-s -w" -o (Join-Path $outputPath "photobook-armv7") $projectRoot
+    $buildVersion = (git -C $projectRoot rev-parse --short=12 HEAD 2>$null)
+    if (-not $buildVersion) { $buildVersion = "dev" }
+    go build -trimpath -ldflags="-s -w -X main.buildVersion=$buildVersion" -o (Join-Path $outputPath "photobook-armv7") $projectRoot
     if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
 }
 finally {

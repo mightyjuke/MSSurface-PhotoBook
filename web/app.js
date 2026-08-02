@@ -339,6 +339,7 @@
     let active = 0;
     let timer;
     let signature = '';
+    let loadedVersion = null;
 
     function shuffled(length) {
       const values = Array.from({ length }, (_, index) => index);
@@ -394,6 +395,11 @@
     async function refresh() {
       try {
         const fresh = await api('/api/frame');
+        if (loadedVersion && fresh.version && fresh.version !== loadedVersion) {
+          location.reload();
+          return;
+        }
+        loadedVersion = fresh.version || loadedVersion;
         fresh.photos = Array.isArray(fresh.photos) ? fresh.photos : [];
         display.classList.remove('offline');
         applyConfig(fresh.config);

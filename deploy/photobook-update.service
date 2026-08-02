@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for a PhotoBook update
+Wants=network-online.target
+After=network-online.target photobook.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/photobook-update
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

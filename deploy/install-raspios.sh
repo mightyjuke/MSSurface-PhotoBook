@@ -29,6 +29,10 @@ if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y chromium-browser
 fi
+if ! command -v curl >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates
+fi
 
 if ! id photobook >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/photobook --shell /usr/sbin/nologin photobook
@@ -39,6 +43,9 @@ install -m 0755 "$binary_path" /usr/local/bin/photobook
 install -m 0755 "$script_dir/photobook-kiosk" /usr/local/bin/photobook-kiosk
 install -m 0644 "$script_dir/photobook.service" /etc/systemd/system/photobook.service
 install -m 0644 "$script_dir/photobook-kiosk.desktop" /etc/xdg/autostart/photobook-kiosk.desktop
+install -m 0755 "$script_dir/photobook-update" /usr/local/sbin/photobook-update
+install -m 0644 "$script_dir/photobook-update.service" /etc/systemd/system/photobook-update.service
+install -m 0644 "$script_dir/photobook-update.timer" /etc/systemd/system/photobook-update.timer
 
 cat > /etc/default/photobook <<EOF
 PHOTOBOOK_ADDRESS="0.0.0.0:8080"
@@ -46,8 +53,13 @@ PHOTOBOOK_DATA_DIR="/var/lib/photobook"
 PHOTOBOOK_ADMIN_PASSWORD="$PHOTOBOOK_PASSWORD"
 EOF
 chmod 0640 /etc/default/photobook
+cat > /etc/default/photobook-updater <<'EOF'
+PHOTOBOOK_UPDATE_BASE_URL="https://github.com/mightyjuke/MSSurface-PhotoBook/releases/download/edge"
+EOF
+chmod 0644 /etc/default/photobook-updater
 
 systemctl daemon-reload
 systemctl enable --now photobook.service
+systemctl enable --now photobook-update.timer
 
 echo "PHOTOBOOK_ADMIN_PASSWORD=$PHOTOBOOK_PASSWORD"
