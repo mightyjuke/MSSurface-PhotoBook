@@ -132,6 +132,11 @@ input[role="switch"]:checked::after { transform: translateX(20px); }
 .progress-copy { display: flex; font-size: .8rem; justify-content: space-between; margin-bottom: .55rem; }
 .progress-track { background: #e4dfd6; border-radius: 999px; height: 7px; overflow: hidden; }
 .progress-track span { background: var(--accent); display: block; height: 100%; transition: width .2s; width: 0; }
+.upload-progress.processing .progress-track span { animation: processing-progress 1.25s ease-in-out infinite; transition: none; width: 35% !important; }
+@keyframes processing-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(300%); }
+}
 
 body.modal-open { overflow: hidden; }
 .confirm-overlay {
@@ -188,4 +193,5 @@ body.modal-open { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  .upload-progress.processing .progress-track span { animation: none; transform: translateX(90%); }
 }

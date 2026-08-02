@@ -348,7 +348,8 @@
 
     input.addEventListener('change', () => {
       if (!input.files.length) return;
-      upload(input.files).finally(() => { input.value = ''; });
+      input.disabled = true;
+      upload(input.files).finally(() => { input.value = ''; input.disabled = false; });
     });
 
     function upload(files) {
@@ -358,24 +359,49 @@
         const xhr = new XMLHttpRequest();
         const progress = document.querySelector('#upload-progress');
         const bar = progress.querySelector('.progress-track span');
-        const copy = progress.querySelector('strong');
+        const label = progress.querySelector('.progress-copy span');
+        const valueCopy = progress.querySelector('strong');
+        const photoLabel = `${files.length} photo${files.length === 1 ? '' : 's'}`;
+        clearTimeout(progress.hideTimer);
+        progress.classList.remove('processing');
+        label.textContent = `Uploading ${photoLabel}…`;
+        valueCopy.textContent = '0%';
+        bar.style.width = '0%';
         progress.hidden = false;
         xhr.upload.onprogress = event => {
           const value = event.lengthComputable ? Math.round(event.loaded / event.total * 100) : 0;
           bar.style.width = `${value}%`;
-          copy.textContent = `${value}%`;
+          valueCopy.textContent = `${value}%`;
+        };
+        xhr.upload.onload = () => {
+          progress.classList.add('processing');
+          label.textContent = 'Compressing photos and generating display cache…';
+          valueCopy.textContent = 'Working…';
+          bar.style.width = '35%';
         };
         xhr.onload = async () => {
-          progress.hidden = true;
           if (xhr.status >= 200 && xhr.status < 300) {
+            progress.classList.remove('processing');
+            label.textContent = 'Refreshing photo library…';
+            valueCopy.textContent = '95%';
+            bar.style.width = '95%';
             await refresh();
+            label.textContent = 'Photos ready';
+            valueCopy.textContent = '100%';
+            bar.style.width = '100%';
             notify(`${files.length} photo${files.length === 1 ? '' : 's'} added.`);
           } else {
             try { notify(JSON.parse(xhr.responseText).error, true); } catch (_) { notify('Upload failed.', true); }
           }
+          progress.hideTimer = window.setTimeout(() => { progress.hidden = true; }, xhr.status >= 200 && xhr.status < 300 ? 500 : 0);
           resolve();
         };
-        xhr.onerror = () => { progress.hidden = true; notify('Upload failed. Check the connection.', true); resolve(); };
+        xhr.onerror = () => {
+          progress.classList.remove('processing');
+          progress.hidden = true;
+          notify('Upload failed. Check the connection.', true);
+          resolve();
+        };
         xhr.open('POST', '/api/admin/photos');
         xhr.send(data);
       });
