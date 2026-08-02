@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0f">
+  <title>PhotoBook</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="display" class="display" hidden aria-live="polite">
+    <div class="photo-stage">
+      <img class="slide slide-a" alt="">
+      <img class="slide slide-b" alt="">
+    </div>
+    <div class="empty-frame">
+      <div class="empty-mark" aria-hidden="true">◇</div>
+      <h1>Your PhotoBook is ready</h1>
+      <p>Open <strong class="admin-address">/admin/</strong> from another device to add photographs.</p>
+    </div>
+    <time class="frame-clock"></time>
+    <div class="offline-pill">Reconnecting…</div>
+  </main>
+
+  <main id="admin" class="admin" hidden>
+    <header class="topbar">
+      <a class="brand" href="/admin/" aria-label="PhotoBook admin">
+        <span class="brand-mark">◇</span>
+        <span>PhotoBook</span>
+      </a>
+      <a class="button secondary" href="/display/" target="_blank">View frame</a>
+    </header>
+
+    <div class="admin-shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">YOUR DIGITAL FRAME</p>
+          <h1>Keep the memories moving.</h1>
+          <p class="hero-copy">Add photos here and the Surface updates automatically—no restart needed.</p>
+        </div>
+        <label class="button upload-button" for="photo-input">
+          <span>＋</span> Add photos
+          <input id="photo-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple>
+        </label>
+      </section>
+
+      <div id="notice" class="notice" hidden role="status"></div>
+      <div id="upload-progress" class="upload-progress" hidden>
+        <div class="progress-copy"><span>Uploading photos…</span><strong>0%</strong></div>
+        <div class="progress-track"><span></span></div>
+      </div>
+
+      <section class="stats" aria-label="Library summary">
+        <div><span>PHOTOS</span><strong id="photo-count">0</strong></div>
+        <div><span>LIBRARY SIZE</span><strong id="library-size">0 MB</strong></div>
+        <div><span>CHANGE EVERY</span><strong id="interval-summary">12 sec</strong></div>
+      </section>
+
+      <div class="content-grid">
+        <section class="panel library-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">LIBRARY</p>
+              <h2>Photographs</h2>
+              <p id="order-hint" class="order-hint">Drag photos to arrange the slideshow sequence.</p>
+            </div>
+            <div id="bulk-actions" class="bulk-actions" hidden>
+              <strong id="selected-count">0 selected</strong>
+              <button id="clear-selection" class="small-button" type="button">Clear</button>
+              <button id="remove-selected" class="small-button danger" type="button">Remove selected</button>
+            </div>
+          </div>
+          <div id="photo-grid" class="photo-grid"></div>
+          <div id="empty-library" class="empty-library">
+            <span>◇</span>
+            <h3>No photos yet</h3>
+            <p>Add a few favorites to begin the slideshow.</p>
+          </div>
+        </section>
+
+        <aside class="panel settings-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">DISPLAY</p>
+              <h2>Frame settings</h2>
+            </div>
+          </div>
+          <form id="settings-form">
+            <label>
+              <span>Frame title</span>
+              <input id="title" name="title" maxlength="80" autocomplete="off">
+            </label>
+            <label>
+              <span>Seconds per photo</span>
+              <input id="interval" name="interval" type="number" min="3" max="300" required>
+            </label>
+            <label>
+              <span>Transition</span>
+              <select id="transition" name="transition">
+                <option value="fade">Soft fade</option>
+                <option value="fade-zoom">Soft fade + zoom out</option>
+                <option value="slide">Gentle slide</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label>
+              <span>Photo fit</span>
+              <select id="fit" name="fit">
+                <option value="contain">Show whole photo</option>
+                <option value="cover">Fill the screen</option>
+              </select>
+            </label>
+            <label class="color-row">
+              <span>Background</span>
+              <input id="background" name="background" type="color">
+            </label>
+            <label class="switch-row">
+              <span><strong>Shuffle</strong><small>Mix the photo order</small></span>
+              <input id="shuffle" name="shuffle" type="checkbox" role="switch">
+            </label>
+            <label class="switch-row">
+              <span><strong>Show clock</strong><small>Display time in the corner</small></span>
+              <input id="show-clock" name="showClock" type="checkbox" role="switch">
+            </label>
+            <button class="button save-button" type="submit">Save settings</button>
+          </form>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <template id="photo-template">
+    <article class="photo-card">
+      <img alt="" loading="lazy">
+      <label class="select-control">
+        <input class="photo-select" type="checkbox">
+        <span>Select</span>
+      </label>
+      <button class="drag-handle" type="button" draggable="true" aria-label="Drag to arrange photo" title="Drag to arrange">⠿</button>
+      <div class="photo-meta">
+        <span class="photo-name"></span>
+        <button class="delete-button" type="button" aria-label="Remove photo">Remove</button>
+      </div>
+    </article>
+  </template>
+
+  <div id="confirm-overlay" class="confirm-overlay" hidden>
+    <section class="confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <p class="eyebrow">PLEASE CONFIRM</p>
+      <h2 id="confirm-title">Remove photo?</h2>
+      <p id="confirm-message"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" class="button secondary" type="button">Cancel</button>
+        <button id="confirm-remove" class="button danger-button" type="button">Remove</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

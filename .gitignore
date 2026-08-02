@@ -1,0 +1,6 @@
+/data/
+/.tmp-ui-data/
+/dist/
+/photobook
+/photobook.exe
+*.log
