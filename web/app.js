@@ -48,6 +48,8 @@
     let draggedCard = null;
     let savingOrder = false;
     let confirmationResolver = null;
+    let updatePollTimer = null;
+    let loadedUpdateVersion = null;
 
     function closeConfirmation(accepted) {
       if (!confirmationResolver) return;
@@ -103,6 +105,7 @@
     }
 
     function renderUpdateStatus(status) {
+      const checking = ['queued', 'checking'].includes(status.state);
       softwareVersion.textContent = status.currentVersion || 'Unknown';
       autoUpdate.checked = status.enabled;
       updateState.textContent = status.state || 'idle';
@@ -111,12 +114,26 @@
       updateCheckedAt.textContent = status.checkedAt
         ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.checkedAt))
         : 'Never';
+      checkUpdate.disabled = checking;
+      checkUpdate.textContent = checking ? 'Checking…' : 'Check for updates';
+      if (!loadedUpdateVersion) loadedUpdateVersion = status.currentVersion;
+      if (!checking && status.currentVersion && status.currentVersion !== loadedUpdateVersion) {
+        loadedUpdateVersion = status.currentVersion;
+        window.setTimeout(() => location.reload(), 500);
+      }
+      clearTimeout(updatePollTimer);
+      if (checking) updatePollTimer = window.setTimeout(pollUpdateStatus, 2000);
     }
 
     async function loadUpdateStatus() {
       const status = await api('/api/admin/update');
       renderUpdateStatus(status);
       return status;
+    }
+
+    async function pollUpdateStatus() {
+      try { await loadUpdateStatus(); }
+      catch (_) { updatePollTimer = window.setTimeout(pollUpdateStatus, 2000); }
     }
 
     autoUpdate.addEventListener('change', async () => {
@@ -137,27 +154,12 @@
     });
 
     checkUpdate.addEventListener('click', async () => {
-      const startingVersion = softwareVersion.textContent;
       checkUpdate.disabled = true;
       checkUpdate.textContent = 'Checking…';
       try {
         renderUpdateStatus(await api('/api/admin/update/check', { method: 'POST' }));
-        for (let attempt = 0; attempt < 45; attempt++) {
-          await new Promise(resolve => window.setTimeout(resolve, 2000));
-          let status;
-          try { status = await loadUpdateStatus(); } catch (_) { continue; }
-          if (status.currentVersion && status.currentVersion !== startingVersion) {
-            location.reload();
-            return;
-          }
-          if (!['queued', 'checking'].includes(status.state)) {
-            notify(status.message, status.state === 'error');
-            return;
-          }
-        }
-        notify('The update check is still running. Its result will appear here shortly.');
-      } catch (error) { notify(error.message, true); }
-      finally {
+      } catch (error) {
+        notify(error.message, true);
         checkUpdate.disabled = false;
         checkUpdate.textContent = 'Check for updates';
       }
