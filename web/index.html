@@ -18,7 +18,15 @@
       <h1>Your PhotoBook is ready</h1>
       <p>Open <strong class="admin-address">/admin/</strong> from another device to add photographs.</p>
     </div>
-    <time class="frame-clock"></time>
+    <section class="frame-clock" aria-label="Time, date, and weather">
+      <time class="frame-time"></time>
+      <time class="frame-date"></time>
+      <div class="frame-weather" hidden>
+        <span class="weather-icon" aria-hidden="true"></span>
+        <span class="weather-temperature"></span>
+        <span class="weather-condition"></span>
+      </div>
+    </section>
     <div class="offline-pill">Reconnecting…</div>
   </main>
 
@@ -119,7 +127,7 @@
               <input id="shuffle" name="shuffle" type="checkbox" role="switch">
             </label>
             <label class="switch-row">
-              <span><strong>Show clock</strong><small>Display time in the corner</small></span>
+              <span><strong>Show clock</strong><small>Display time, date, and local weather</small></span>
               <input id="show-clock" name="showClock" type="checkbox" role="switch">
             </label>
             <button class="button save-button" type="submit">Save settings</button>

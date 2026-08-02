@@ -85,6 +85,23 @@ func TestWebAssetsRequireRevalidation(t *testing.T) {
 	if got := res.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("Cache-Control = %q, want no-cache", got)
 	}
+	for _, origin := range []string{"https://api.open-meteo.com", "https://geocoding-api.open-meteo.com"} {
+		if got := res.Header().Get("Content-Security-Policy"); !bytes.Contains([]byte(got), []byte(origin)) {
+			t.Fatalf("Content-Security-Policy does not allow weather origin %q: %s", origin, got)
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/display/", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("display status = %d, want 200", res.Code)
+	}
+	for _, className := range []string{"frame-time", "frame-date", "frame-weather"} {
+		if !bytes.Contains(res.Body.Bytes(), []byte(`class="`+className)) {
+			t.Fatalf("display does not include %s markup", className)
+		}
+	}
 }
 
 func TestAdminUpdateControls(t *testing.T) {

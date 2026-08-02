@@ -426,6 +426,12 @@
     const slides = Array.from(document.querySelectorAll('.slide'));
     const empty = document.querySelector('.empty-frame');
     const clock = document.querySelector('.frame-clock');
+    const clockTime = document.querySelector('.frame-time');
+    const clockDate = document.querySelector('.frame-date');
+    const weather = document.querySelector('.frame-weather');
+    const weatherIcon = document.querySelector('.weather-icon');
+    const weatherTemperature = document.querySelector('.weather-temperature');
+    const weatherCondition = document.querySelector('.weather-condition');
     const address = `${location.host}/admin/`;
     document.querySelector('.admin-address').textContent = address;
     let state = null;
@@ -435,6 +441,7 @@
     let timer;
     let signature = '';
     let loadedVersion = null;
+    let weatherLastAttempt = 0;
 
     function shuffled(length) {
       const values = Array.from({ length }, (_, index) => index);
@@ -451,6 +458,10 @@
       display.style.setProperty('--slide-duration', `${config.intervalSeconds}s`);
       slides.forEach(slide => { slide.style.objectFit = config.fit; });
       clock.hidden = !config.showClock;
+      if (config.showClock && Date.now() - weatherLastAttempt >= 15 * 60 * 1000) {
+        weatherLastAttempt = Date.now();
+        updateWeather();
+      }
       document.title = config.title || 'PhotoBook';
     }
 
@@ -517,7 +528,73 @@
     }
 
     function updateClock() {
-      clock.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date());
+      const now = new Date();
+      const twoDigits = value => String(value).padStart(2, '0');
+      clockTime.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(now);
+      clockTime.dateTime = now.toISOString();
+      clockDate.textContent = `${twoDigits(now.getDate())}/${twoDigits(now.getMonth() + 1)}/${now.getFullYear()}`;
+      clockDate.dateTime = `${now.getFullYear()}-${twoDigits(now.getMonth() + 1)}-${twoDigits(now.getDate())}`;
+    }
+
+    function describeWeather(code, isDay) {
+      if (code === 0) return { icon: isDay ? '☀︎' : '☾', label: 'Clear' };
+      if (code === 1) return { icon: isDay ? '☀︎' : '☾', label: 'Mostly clear' };
+      if (code === 2) return { icon: '☁︎', label: 'Partly cloudy' };
+      if (code === 3) return { icon: '☁︎', label: 'Overcast' };
+      if (code === 45 || code === 48) return { icon: '≋', label: 'Foggy' };
+      if ([51, 53, 55, 56, 57].includes(code)) return { icon: '☂︎', label: 'Drizzle' };
+      if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { icon: '☂︎', label: 'Rain' };
+      if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: '❄︎', label: 'Snow' };
+      if ([95, 96, 99].includes(code)) return { icon: 'ϟ', label: 'Thunderstorm' };
+      return { icon: '○', label: 'Current weather' };
+    }
+
+    function browserPosition() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Location is unavailable'));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          position => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+          reject,
+          { enableHighAccuracy: false, maximumAge: 60 * 60 * 1000, timeout: 10000 }
+        );
+      });
+    }
+
+    async function timeZonePosition() {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const city = timeZone.split('/').pop().replace(/_/g, ' ');
+      if (!city || city === 'UTC' || timeZone.startsWith('Etc/')) throw new Error('No location fallback');
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`);
+      if (!response.ok) throw new Error('Could not resolve time zone');
+      const result = (await response.json()).results?.[0];
+      if (!result) throw new Error('Could not resolve time zone');
+      return { latitude: result.latitude, longitude: result.longitude };
+    }
+
+    async function updateWeather() {
+      try {
+        let position;
+        try { position = await browserPosition(); }
+        catch (_) { position = await timeZonePosition(); }
+        const params = new URLSearchParams({
+          latitude: position.latitude,
+          longitude: position.longitude,
+          current: 'temperature_2m,weather_code,is_day',
+          temperature_unit: 'celsius'
+        });
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+        if (!response.ok) throw new Error('Weather is unavailable');
+        const current = (await response.json()).current;
+        if (!current || !Number.isFinite(current.temperature_2m)) throw new Error('Weather is unavailable');
+        const conditions = describeWeather(current.weather_code, current.is_day === 1);
+        weatherIcon.textContent = conditions.icon;
+        weatherTemperature.textContent = `${Math.round(current.temperature_2m)}°`;
+        weatherCondition.textContent = conditions.label;
+        weather.hidden = false;
+      } catch (_) { /* Keep the last successful reading, if one exists. */ }
     }
 
     updateClock();

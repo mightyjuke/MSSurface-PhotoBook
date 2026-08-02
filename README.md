@@ -2,13 +2,14 @@
 
 A small, self-hosted digital photo frame built for the original 32 GB Microsoft Surface RT. It starts a full-screen slideshow when the desktop logs in and exposes a touch-friendly photo manager to other browsers on the same network.
 
-The application is deliberately one ARMv7 binary with embedded HTML, CSS, and JavaScript. It has no database, Node.js runtime, container engine, or cloud dependency.
+The application is deliberately one ARMv7 binary with embedded HTML, CSS, and JavaScript. It has no database, Node.js runtime, or container engine. The slideshow remains entirely local; the optional weather reading uses Open-Meteo.
 
 ## What is included
 
 - Full-screen, automatically refreshing slideshow
 - Multiple-photo upload and deletion from a browser
 - Shuffle, timing, fade/slide, contain/cover, background, and clock settings
+- Large clock with date and current local weather when the clock is enabled
 - Photos and settings stored as ordinary files under `/var/lib/photobook`
 - Optional password protection for all management routes
 - OpenRC service and XFCE autostart entry
