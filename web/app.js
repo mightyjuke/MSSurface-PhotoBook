@@ -25,7 +25,6 @@
       interval: document.querySelector('#interval'),
       transition: document.querySelector('#transition'),
       fit: document.querySelector('#fit'),
-      background: document.querySelector('#background'),
       shuffle: document.querySelector('#shuffle'),
       showClock: document.querySelector('#show-clock')
     };
@@ -91,7 +90,6 @@
       fields.interval.value = config.intervalSeconds;
       fields.transition.value = config.transition;
       fields.fit.value = config.fit;
-      fields.background.value = config.background;
       fields.shuffle.checked = config.shuffle;
       fields.showClock.checked = config.showClock;
       updateOrderHint(config.shuffle);
@@ -337,7 +335,7 @@
           intervalSeconds: Number(fields.interval.value),
           transition: fields.transition.value,
           fit: fields.fit.value,
-          background: fields.background.value,
+          background: state.config.background,
           shuffle: fields.shuffle.checked,
           showClock: fields.showClock.checked
         };
@@ -423,15 +421,25 @@
 
   async function initDisplay() {
     const display = document.querySelector('#display');
+    const layers = Array.from(document.querySelectorAll('.photo-layer'));
     const slides = Array.from(document.querySelectorAll('.slide'));
+    const backdrops = Array.from(document.querySelectorAll('.photo-backdrop'));
     const empty = document.querySelector('.empty-frame');
     const clock = document.querySelector('.frame-clock');
     const clockTime = document.querySelector('.frame-time');
     const clockDate = document.querySelector('.frame-date');
+    const clockWeekday = document.querySelector('.frame-weekday');
     const weather = document.querySelector('.frame-weather');
     const weatherIcon = document.querySelector('.weather-icon');
     const weatherTemperature = document.querySelector('.weather-temperature');
+    const weatherHumidity = document.querySelector('.weather-humidity');
     const weatherCondition = document.querySelector('.weather-condition');
+    const weatherMetrics = document.querySelector('.weather-metrics');
+    const weatherDetails = document.querySelector('.weather-details');
+    const weatherFeelsLike = document.querySelector('.weather-feels-like');
+    const weatherWind = document.querySelector('.weather-wind');
+    const weatherRain = document.querySelector('.weather-rain');
+    const forecastDays = Array.from(document.querySelectorAll('.forecast-day'));
     const address = `${location.host}/admin/`;
     document.querySelector('.admin-address').textContent = address;
     let state = null;
@@ -442,6 +450,7 @@
     let signature = '';
     let loadedVersion = null;
     let weatherLastAttempt = 0;
+    let clockDayKey = '';
 
     function shuffled(length) {
       const values = Array.from({ length }, (_, index) => index);
@@ -453,7 +462,7 @@
     }
 
     function applyConfig(config) {
-      display.className = `display ${config.transition}`;
+      display.className = `display ${config.transition} fit-${config.fit}`;
       display.style.background = config.background;
       display.style.setProperty('--slide-duration', `${config.intervalSeconds}s`);
       slides.forEach(slide => { slide.style.objectFit = config.fit; });
@@ -474,15 +483,23 @@
         position = 0;
       }
       const photo = state.photos[order[position]];
+      const incomingLayer = layers[1 - active];
       const incoming = slides[1 - active];
-      incoming.onload = () => {
-        slides[active].classList.remove('active');
-        incoming.classList.add('active');
-        active = 1 - active;
-      };
-      incoming.src = photo.displayUrl
+      const incomingBackdrop = backdrops[1 - active];
+      const source = photo.displayUrl
         ? `${photo.displayUrl}?fit=${encodeURIComponent(state.config.fit)}`
         : photo.url;
+      incoming.onload = () => {
+        layers[active].classList.remove('active');
+        incomingLayer.classList.add('active');
+        active = 1 - active;
+      };
+      if (state.config.fit === 'contain') {
+        incomingBackdrop.src = photo.backdropUrl || source;
+      } else {
+        incomingBackdrop.removeAttribute('src');
+      }
+      incoming.src = source;
       incoming.alt = photo.originalName;
       timer = setTimeout(next, state.config.intervalSeconds * 1000);
     }
@@ -492,9 +509,12 @@
       order = [];
       position = -1;
       slides.forEach(slide => {
-        slide.classList.remove('active');
         slide.removeAttribute('src');
         slide.alt = '';
+      });
+      layers.forEach(layer => layer.classList.remove('active'));
+      backdrops.forEach(backdrop => {
+        backdrop.removeAttribute('src');
       });
     }
 
@@ -527,26 +547,42 @@
       } catch (_) { display.classList.add('offline'); }
     }
 
+    function localDateKey(date) {
+      const twoDigits = value => String(value).padStart(2, '0');
+      return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}`;
+    }
+
     function updateClock() {
       const now = new Date();
       const twoDigits = value => String(value).padStart(2, '0');
-      clockTime.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(now);
+      const nextDayKey = localDateKey(now);
+      clockTime.textContent = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
       clockTime.dateTime = now.toISOString();
-      clockDate.textContent = `${twoDigits(now.getDate())}/${twoDigits(now.getMonth() + 1)}/${now.getFullYear()}`;
-      clockDate.dateTime = `${now.getFullYear()}-${twoDigits(now.getMonth() + 1)}-${twoDigits(now.getDate())}`;
+      clockWeekday.textContent = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(now);
+      clockDate.textContent = `${twoDigits(now.getDate())}.${twoDigits(now.getMonth() + 1)}.${String(now.getFullYear()).slice(-2)}`;
+      clockDate.dateTime = nextDayKey;
+      if (clockDayKey && clockDayKey !== nextDayKey && !clock.hidden) {
+        weatherLastAttempt = Date.now();
+        updateWeather();
+      }
+      clockDayKey = nextDayKey;
     }
 
     function describeWeather(code, isDay) {
-      if (code === 0) return { icon: isDay ? '☀︎' : '☾', label: 'Clear' };
-      if (code === 1) return { icon: isDay ? '☀︎' : '☾', label: 'Mostly clear' };
-      if (code === 2) return { icon: '☁︎', label: 'Partly cloudy' };
-      if (code === 3) return { icon: '☁︎', label: 'Overcast' };
-      if (code === 45 || code === 48) return { icon: '≋', label: 'Foggy' };
-      if ([51, 53, 55, 56, 57].includes(code)) return { icon: '☂︎', label: 'Drizzle' };
-      if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { icon: '☂︎', label: 'Rain' };
-      if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: '❄︎', label: 'Snow' };
-      if ([95, 96, 99].includes(code)) return { icon: 'ϟ', label: 'Thunderstorm' };
-      return { icon: '○', label: 'Current weather' };
+      if (code === 0) return { icon: isDay ? 'day-sunny' : 'night-clear', label: 'Clear' };
+      if (code === 1) return { icon: isDay ? 'day-sunny-overcast' : 'night-alt-partly-cloudy', label: 'Mostly clear' };
+      if (code === 2) return { icon: isDay ? 'day-cloudy' : 'night-alt-cloudy', label: 'Partly cloudy' };
+      if (code === 3) return { icon: 'cloudy', label: 'Overcast' };
+      if (code === 45 || code === 48) return { icon: 'fog', label: 'Foggy' };
+      if ([51, 53, 55, 56, 57].includes(code)) return { icon: 'sprinkle', label: 'Drizzle' };
+      if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { icon: 'rain', label: 'Rain' };
+      if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: 'snow', label: 'Snow' };
+      if ([95, 96, 99].includes(code)) return { icon: 'thunderstorm', label: 'Thunderstorm' };
+      return { icon: 'cloud', label: 'Current weather' };
+    }
+
+    function iconURL(name, color = 'ffffff') {
+      return `https://api.iconify.design/wi/${name}.svg?color=%23${color}`;
     }
 
     function browserPosition() {
@@ -574,6 +610,70 @@
       return { latitude: result.latitude, longitude: result.longitude };
     }
 
+    function renderWeather(result) {
+      const current = result.current;
+      const conditions = describeWeather(current.weather_code, current.is_day === 1);
+      weatherIcon.src = iconURL(conditions.icon, 'ffbd4a');
+      weatherIcon.alt = conditions.label;
+      weatherIcon.hidden = false;
+      weatherTemperature.textContent = `${Math.round(current.temperature_2m)}°`;
+      weatherHumidity.textContent = `${Math.round(current.relative_humidity_2m)}%`;
+      weatherCondition.textContent = conditions.label;
+      weatherCondition.hidden = false;
+      weatherMetrics.hidden = false;
+
+      const daily = result.daily;
+      const today = localDateKey(new Date());
+      const entries = daily.time.map((date, index) => ({
+        dateKey: date,
+        date: new Date(`${date}T12:00:00`),
+        code: daily.weather_code[index],
+        low: Math.round(daily.temperature_2m_min[index]),
+        high: Math.round(daily.temperature_2m_max[index]),
+        rain: Number.isFinite(daily.precipitation_probability_max?.[index])
+          ? Math.round(daily.precipitation_probability_max[index])
+          : null
+      })).filter(entry => entry.dateKey >= today).slice(0, 1);
+      weatherFeelsLike.textContent = `${Math.round(Number.isFinite(current.apparent_temperature) ? current.apparent_temperature : current.temperature_2m)}°`;
+      weatherWind.textContent = Number.isFinite(current.wind_speed_10m) ? `${Math.round(current.wind_speed_10m)} km/h` : '—';
+      weatherRain.textContent = entries[0]?.rain == null ? '—' : `${entries[0].rain}%`;
+      weatherDetails.hidden = false;
+      const scaleLow = Math.min(...entries.map(entry => entry.low));
+      const scaleHigh = Math.max(...entries.map(entry => entry.high));
+      const scaleRange = Math.max(scaleHigh - scaleLow, 1);
+      forecastDays.forEach((row, index) => {
+        const entry = entries[index];
+        if (!entry) {
+          row.hidden = true;
+          return;
+        }
+        const forecast = describeWeather(entry.code, true);
+        row.hidden = false;
+        row.querySelector('.forecast-name').textContent = entry.dateKey === today
+          ? 'Today'
+          : new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(entry.date);
+        const icon = row.querySelector('img');
+        icon.src = iconURL(forecast.icon);
+        icon.alt = forecast.label;
+        row.querySelector('.forecast-low').textContent = `${entry.low}°`;
+        row.querySelector('.forecast-high').textContent = `${entry.high}°`;
+        const range = row.querySelector('.forecast-range');
+        range.style.left = `${(entry.low - scaleLow) / scaleRange * 100}%`;
+        range.style.width = `${Math.max((entry.high - entry.low) / scaleRange * 100, 18)}%`;
+        const currentMarker = row.querySelector('.forecast-current');
+        if (entry.dateKey === today) {
+          const currentPosition = (Math.round(current.temperature_2m) - scaleLow) / scaleRange * 100;
+          currentMarker.style.left = `${Math.max(5, Math.min(currentPosition, 95))}%`;
+          currentMarker.title = `Current temperature ${Math.round(current.temperature_2m)}°`;
+          currentMarker.hidden = false;
+        } else {
+          currentMarker.hidden = true;
+        }
+      });
+      weather.hidden = false;
+      clock.classList.add('weather-ready');
+    }
+
     async function updateWeather() {
       try {
         let position;
@@ -582,19 +682,22 @@
         const params = new URLSearchParams({
           latitude: position.latitude,
           longitude: position.longitude,
-          current: 'temperature_2m,weather_code,is_day',
-          temperature_unit: 'celsius'
+          current: 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m',
+          daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+          forecast_days: '2',
+          temperature_unit: 'celsius',
+          wind_speed_unit: 'kmh',
+          timezone: 'auto'
         });
-        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { cache: 'no-store' });
         if (!response.ok) throw new Error('Weather is unavailable');
-        const current = (await response.json()).current;
-        if (!current || !Number.isFinite(current.temperature_2m)) throw new Error('Weather is unavailable');
-        const conditions = describeWeather(current.weather_code, current.is_day === 1);
-        weatherIcon.textContent = conditions.icon;
-        weatherTemperature.textContent = `${Math.round(current.temperature_2m)}°`;
-        weatherCondition.textContent = conditions.label;
-        weather.hidden = false;
-      } catch (_) { /* Keep the last successful reading, if one exists. */ }
+        const result = await response.json();
+        if (!result.current || !result.daily || !Number.isFinite(result.current.temperature_2m)) throw new Error('Weather is unavailable');
+        renderWeather(result);
+      } catch (_) {
+        weatherLastAttempt = 0;
+        /* Keep the last successful reading, if one exists, and retry on the next frame refresh. */
+      }
     }
 
     updateClock();

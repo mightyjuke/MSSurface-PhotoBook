@@ -54,6 +54,7 @@ type Photo struct {
 	URL          string    `json:"url"`
 	ThumbnailURL string    `json:"thumbnailUrl"`
 	DisplayURL   string    `json:"displayUrl"`
+	BackdropURL  string    `json:"backdropUrl"`
 }
 
 type persistedState struct {
@@ -72,6 +73,7 @@ type UpdateStatus struct {
 
 type Store struct {
 	mu          sync.RWMutex
+	updateMu    sync.RWMutex
 	renditionMu sync.Mutex
 	dataDir     string
 	mediaDir    string
@@ -124,6 +126,8 @@ func NewStore(dataDir string) (*Store, error) {
 }
 
 func (s *Store) GetUpdateStatus() UpdateStatus {
+	s.updateMu.RLock()
+	defer s.updateMu.RUnlock()
 	status := UpdateStatus{
 		CurrentVersion: buildVersion,
 		Enabled:        !fileExists(filepath.Join(s.dataDir, "updates-disabled")),
@@ -162,6 +166,8 @@ func (s *Store) RequestUpdate() error {
 }
 
 func (s *Store) writeUpdateStatus(status UpdateStatus) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	b, err := json.Marshal(status)
 	if err != nil {
 		return err
@@ -182,6 +188,11 @@ func (s *Store) writeUpdateStatus(status UpdateStatus) error {
 	if err := os.Chmod(tmpName, 0644); err != nil {
 		return err
 	}
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(filepath.Join(s.dataDir, "update-status.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	return os.Rename(tmpName, filepath.Join(s.dataDir, "update-status.json"))
 }
 
@@ -195,6 +206,7 @@ func (s *Store) Snapshot() persistedState {
 		out.Photos[i].URL = "/media/" + out.Photos[i].ID
 		out.Photos[i].ThumbnailURL = "/thumbnail/" + out.Photos[i].ID
 		out.Photos[i].DisplayURL = "/display-media/" + out.Photos[i].ID
+		out.Photos[i].BackdropURL = "/backdrop-media/" + out.Photos[i].ID
 	}
 	return out
 }
@@ -273,7 +285,8 @@ func (s *Store) AddPhoto(name, contentType string, src io.Reader) (Photo, error)
 	}
 	p := Photo{
 		ID: filename, OriginalName: filepath.Base(name), Size: n, UploadedAt: time.Now().UTC(),
-		URL: "/media/" + filename, ThumbnailURL: "/thumbnail/" + filename, DisplayURL: "/display-media/" + filename,
+		URL: "/media/" + filename, ThumbnailURL: "/thumbnail/" + filename,
+		DisplayURL: "/display-media/" + filename, BackdropURL: "/backdrop-media/" + filename,
 	}
 	// Rendition failures never reject an otherwise valid original. Formats the
 	// renderer cannot decode fall back to the original in the HTTP handlers.
@@ -287,6 +300,7 @@ func (s *Store) AddPhoto(name, contentType string, src io.Reader) (Photo, error)
 		_ = os.Remove(filepath.Join(s.thumbDir, filename+".jpg"))
 		_ = os.Remove(filepath.Join(s.displayDir, filename+".contain.jpg"))
 		_ = os.Remove(filepath.Join(s.displayDir, filename+".cover.jpg"))
+		_ = os.Remove(filepath.Join(s.displayDir, filename+".backdrop.jpg"))
 		return Photo{}, err
 	}
 	return p, nil
@@ -329,6 +343,7 @@ func (s *Store) DeletePhotos(ids []string) (int, error) {
 		_ = os.Remove(filepath.Join(s.thumbDir, photo.ID+".jpg"))
 		_ = os.Remove(filepath.Join(s.displayDir, photo.ID+".contain.jpg"))
 		_ = os.Remove(filepath.Join(s.displayDir, photo.ID+".cover.jpg"))
+		_ = os.Remove(filepath.Join(s.displayDir, photo.ID+".backdrop.jpg"))
 	}
 	return len(removed), nil
 }
@@ -401,16 +416,28 @@ func (s *Store) DisplayPath(id, fit string) (string, error) {
 	return filepath.Join(s.displayDir, id+"."+fit+".jpg"), nil
 }
 
+func (s *Store) BackdropPath(id string) (string, error) {
+	source, ok := s.PhotoPath(id)
+	if !ok {
+		return "", os.ErrNotExist
+	}
+	if err := s.ensureRenditions(id, source); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.displayDir, id+".backdrop.jpg"), nil
+}
+
 func (s *Store) ensureRenditions(id, source string) error {
 	thumbnailPath := filepath.Join(s.thumbDir, id+".jpg")
 	containPath := filepath.Join(s.displayDir, id+".contain.jpg")
 	coverPath := filepath.Join(s.displayDir, id+".cover.jpg")
-	if filesExist(thumbnailPath, containPath, coverPath) {
+	backdropPath := filepath.Join(s.displayDir, id+".backdrop.jpg")
+	if filesExist(thumbnailPath, containPath, coverPath, backdropPath) {
 		return nil
 	}
 	s.renditionMu.Lock()
 	defer s.renditionMu.Unlock()
-	if filesExist(thumbnailPath, containPath, coverPath) {
+	if filesExist(thumbnailPath, containPath, coverPath, backdropPath) {
 		return nil
 	}
 	sourceImage, err := imaging.Open(source, imaging.AutoOrientation(true))
@@ -434,6 +461,14 @@ func (s *Store) ensureRenditions(id, source string) error {
 			cover = imaging.Fill(sourceImage, 1366, 768, imaging.Center, imaging.Lanczos)
 		}
 		if err := writeJPEGAtomic(coverPath, cover, 88); err != nil {
+			return err
+		}
+	}
+	if !fileExists(backdropPath) {
+		backdrop := imaging.Fill(sourceImage, 1366, 768, imaging.Center, imaging.Lanczos)
+		backdrop = imaging.Blur(backdrop, 18)
+		backdrop = imaging.AdjustBrightness(backdrop, -42)
+		if err := writeJPEGAtomic(backdropPath, backdrop, 72); err != nil {
 			return err
 		}
 	}
@@ -495,10 +530,12 @@ func randomID() (string, error) {
 }
 
 type App struct {
-	store    *Store
-	password string
-	logger   *slog.Logger
-	web      http.Handler
+	store           *Store
+	password        string
+	logger          *slog.Logger
+	web             http.Handler
+	mockUpdates     bool
+	mockUpdateDelay time.Duration
 }
 
 func NewApp(store *Store, password string, logger *slog.Logger) *App {
@@ -506,7 +543,10 @@ func NewApp(store *Store, password string, logger *slog.Logger) *App {
 	if err != nil {
 		panic(err)
 	}
-	return &App{store: store, password: password, logger: logger, web: http.FileServer(http.FS(webRoot))}
+	return &App{
+		store: store, password: password, logger: logger, web: http.FileServer(http.FS(webRoot)),
+		mockUpdates: envEnabled("PHOTOBOOK_MOCK_UPDATES"), mockUpdateDelay: 1200 * time.Millisecond,
+	}
 }
 
 func (a *App) Handler() http.Handler {
@@ -522,6 +562,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /media/{id}", a.getMedia)
 	mux.HandleFunc("GET /thumbnail/{id}", a.getThumbnail)
 	mux.HandleFunc("GET /display-media/{id}", a.getDisplayMedia)
+	mux.HandleFunc("GET /backdrop-media/{id}", a.getBackdropMedia)
 	mux.Handle("GET /display/", http.StripPrefix("/display/", webHandler))
 	mux.Handle("GET /admin/", a.requireAdmin(http.StripPrefix("/admin/", webHandler)))
 	mux.Handle("GET /api/admin/state", a.requireAdmin(http.HandlerFunc(a.getState)))
@@ -584,7 +625,24 @@ func (a *App) postUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not request an update check")
 		return
 	}
+	if a.mockUpdates {
+		go a.runMockUpdate()
+	}
 	writeJSON(w, http.StatusAccepted, a.store.GetUpdateStatus())
+}
+
+func (a *App) runMockUpdate() {
+	_ = os.Remove(filepath.Join(a.store.dataDir, "update-requested"))
+	time.Sleep(a.mockUpdateDelay)
+	_ = a.store.writeUpdateStatus(UpdateStatus{
+		State: "checking", Message: "Mock updater is checking for a new PhotoBook version.",
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	time.Sleep(2 * a.mockUpdateDelay)
+	_ = a.store.writeUpdateStatus(UpdateStatus{
+		State: "current", Message: "Mock update complete. PhotoBook is already current.",
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func (a *App) getMedia(w http.ResponseWriter, r *http.Request) {
@@ -630,6 +688,21 @@ func (a *App) getDisplayMedia(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Content-Type", "image/jpeg")
+	http.ServeFile(w, r, path)
+}
+
+func (a *App) getBackdropMedia(w http.ResponseWriter, r *http.Request) {
+	path, err := a.store.BackdropPath(r.PathValue("id"))
+	if errors.Is(err, os.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not prepare photo backdrop")
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -804,7 +877,7 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; img-src 'self' data: https://api.iconify.design; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -865,6 +938,15 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envEnabled(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func init() {

@@ -2,14 +2,14 @@
 
 A small, self-hosted digital photo frame built for the original 32 GB Microsoft Surface RT. It starts a full-screen slideshow when the desktop logs in and exposes a touch-friendly photo manager to other browsers on the same network.
 
-The application is deliberately one ARMv7 binary with embedded HTML, CSS, and JavaScript. It has no database, Node.js runtime, or container engine. The slideshow remains entirely local; the optional weather reading uses Open-Meteo.
+The application is deliberately one ARMv7 binary with embedded HTML, CSS, and JavaScript. It has no database, Node.js runtime, or container engine. The slideshow remains entirely local; the optional weather forecast uses Open-Meteo and Weather Icons served by Iconify.
 
 ## What is included
 
 - Full-screen, automatically refreshing slideshow
 - Multiple-photo upload and deletion from a browser
-- Shuffle, timing, fade/slide, contain/cover, background, and clock settings
-- Large clock with date and current local weather when the clock is enabled
+- Shuffle, timing, fade/slide, contain/cover, and clock settings
+- Compact clock card with today's temperature range, humidity, apparent temperature, wind, and rain probability
 - Photos and settings stored as ordinary files under `/var/lib/photobook`
 - Optional password protection for all management routes
 - OpenRC service and XFCE autostart entry
@@ -159,6 +159,16 @@ To change the password, edit `PHOTOBOOK_ADMIN_PASSWORD` in `/etc/conf.d/photoboo
 
 ## Local development
 
+For a complete Windows mock—including a simulated update check—run:
+
+```powershell
+.\scripts\run-windows-mock.ps1
+```
+
+Open `http://localhost:8080/admin/` and sign in as `admin` / `mock-photobook`. Open `http://localhost:8080/display/` in a second window to act as the frame. Uploaded test photos and settings are kept separately in `.mock-data`; no Raspberry Pi or production PhotoBook data is used. Press `Ctrl+C` in PowerShell to stop the mock.
+
+For ordinary development without the simulated updater:
+
 ```powershell
 go test ./...
 $env:PHOTOBOOK_ADMIN_PASSWORD = "dev-password"
@@ -174,5 +184,6 @@ Environment variables:
 | `PHOTOBOOK_ADDRESS` | `:8080` | HTTP listen address |
 | `PHOTOBOOK_DATA_DIR` | `./data` | Photo and state storage |
 | `PHOTOBOOK_ADMIN_PASSWORD` | empty | Password for username `admin`; empty disables authentication |
+| `PHOTOBOOK_MOCK_UPDATES` | false | Simulate update status changes; intended only for local UI testing |
 
 Supported uploads are JPEG, PNG, GIF, and WebP. A single request is limited to 512 MB. For this 2 GB tablet, photos around the display's native resolution—or up to roughly 2560 px on the long edge—will load faster and leave more storage free.

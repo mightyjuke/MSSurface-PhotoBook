@@ -1,5 +1,7 @@
 /data/
 /.tmp-ui-data/
+/.tmp/
+/.mock-data/
 /dist/
 /photobook
 /photobook.exe

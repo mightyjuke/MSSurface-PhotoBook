@@ -10,8 +10,14 @@
 <body>
   <main id="display" class="display" hidden aria-live="polite">
     <div class="photo-stage">
-      <img class="slide slide-a" alt="">
-      <img class="slide slide-b" alt="">
+      <div class="photo-layer layer-a">
+        <img class="photo-backdrop" alt="" aria-hidden="true">
+        <img class="slide" alt="">
+      </div>
+      <div class="photo-layer layer-b">
+        <img class="photo-backdrop" alt="" aria-hidden="true">
+        <img class="slide" alt="">
+      </div>
     </div>
     <div class="empty-frame">
       <div class="empty-mark" aria-hidden="true">◇</div>
@@ -19,12 +25,25 @@
       <p>Open <strong class="admin-address">/admin/</strong> from another device to add photographs.</p>
     </div>
     <section class="frame-clock" aria-label="Time, date, and weather">
-      <time class="frame-time"></time>
-      <time class="frame-date"></time>
-      <div class="frame-weather" hidden>
-        <span class="weather-icon" aria-hidden="true"></span>
-        <span class="weather-temperature"></span>
-        <span class="weather-condition"></span>
+      <div class="weather-overview">
+        <img class="weather-icon" alt="" hidden>
+        <div class="clock-copy">
+          <span class="weather-condition" hidden></span>
+          <time class="frame-time"></time>
+          <div class="clock-calendar"><span class="frame-weekday"></span>, <time class="frame-date"></time></div>
+        </div>
+        <div class="weather-metrics" hidden>
+          <span><strong class="weather-temperature"></strong><small>Temperature</small></span>
+          <span><strong class="weather-humidity"></strong><small>Humidity</small></span>
+        </div>
+      </div>
+      <div class="frame-weather" hidden aria-label="Today's weather">
+        <article class="forecast-day"><span class="forecast-name"></span><img alt=""><span class="forecast-low"></span><span class="forecast-track"><span class="forecast-range"></span><span class="forecast-current" hidden></span></span><span class="forecast-high"></span></article>
+        <div class="weather-details" hidden>
+          <span><strong class="weather-feels-like"></strong><small>Feels like</small></span>
+          <span><strong class="weather-wind"></strong><small>Wind</small></span>
+          <span><strong class="weather-rain"></strong><small>Rain</small></span>
+        </div>
       </div>
     </section>
     <div class="offline-pill">Reconnecting…</div>
@@ -117,10 +136,6 @@
                 <option value="contain">Show whole photo</option>
                 <option value="cover">Fill the screen</option>
               </select>
-            </label>
-            <label class="color-row">
-              <span>Background</span>
-              <input id="background" name="background" type="color">
             </label>
             <label class="switch-row">
               <span><strong>Shuffle</strong><small>Mix the photo order</small></span>

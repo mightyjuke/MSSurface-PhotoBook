@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testApp(t *testing.T, password string) (*Store, http.Handler) {
@@ -85,7 +86,15 @@ func TestWebAssetsRequireRevalidation(t *testing.T) {
 	if got := res.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("Cache-Control = %q, want no-cache", got)
 	}
-	for _, origin := range []string{"https://api.open-meteo.com", "https://geocoding-api.open-meteo.com"} {
+	for _, selector := range []string{".display.fade-zoom .photo-layer", ".display.slide .photo-layer"} {
+		if !bytes.Contains(res.Body.Bytes(), []byte(selector)) {
+			t.Fatalf("display stylesheet does not group transition selector %q", selector)
+		}
+	}
+	if bytes.Contains(res.Body.Bytes(), []byte("*, *::before, *::after")) {
+		t.Fatal("reduced-motion rules must not disable explicitly selected frame transitions")
+	}
+	for _, origin := range []string{"https://api.open-meteo.com", "https://geocoding-api.open-meteo.com", "https://api.iconify.design"} {
 		if got := res.Header().Get("Content-Security-Policy"); !bytes.Contains([]byte(got), []byte(origin)) {
 			t.Fatalf("Content-Security-Policy does not allow weather origin %q: %s", origin, got)
 		}
@@ -97,10 +106,16 @@ func TestWebAssetsRequireRevalidation(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("display status = %d, want 200", res.Code)
 	}
-	for _, className := range []string{"frame-time", "frame-date", "frame-weather"} {
+	for _, className := range []string{"photo-layer", "photo-backdrop", "frame-time", "frame-date", "frame-weekday", "frame-weather", "weather-humidity", "forecast-day"} {
 		if !bytes.Contains(res.Body.Bytes(), []byte(`class="`+className)) {
 			t.Fatalf("display does not include %s markup", className)
 		}
+	}
+	if got := bytes.Count(res.Body.Bytes(), []byte(`class="forecast-day"`)); got != 1 {
+		t.Fatalf("forecast row count = %d, want 1", got)
+	}
+	if got := bytes.Count(res.Body.Bytes(), []byte(`class="forecast-current"`)); got != 1 {
+		t.Fatalf("forecast marker count = %d, want 1", got)
 	}
 }
 
@@ -161,6 +176,67 @@ func TestAdminUpdateControls(t *testing.T) {
 	}
 }
 
+func TestDisplayWeatherRollsAtLocalMidnight(t *testing.T) {
+	_, handler := testApp(t, "")
+	req := httptest.NewRequest(http.MethodGet, "/display/app.js", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.Code)
+	}
+	for _, snippet := range []string{
+		"clockDayKey !== nextDayKey",
+		"filter(entry => entry.dateKey >= today).slice(0, 1)",
+		"forecast_days: '2'",
+		"{ cache: 'no-store' }",
+		"currentMarker.title = `Current temperature",
+		"precipitation_probability_max",
+		"apparent_temperature",
+		"wind_speed_10m",
+	} {
+		if !bytes.Contains(res.Body.Bytes(), []byte(snippet)) {
+			t.Fatalf("display script does not include midnight rollover behavior %q", snippet)
+		}
+	}
+}
+
+func TestMockUpdateCompletes(t *testing.T) {
+	t.Setenv("PHOTOBOOK_MOCK_UPDATES", "true")
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(store, "", logger)
+	app.mockUpdateDelay = time.Millisecond
+	handler := app.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/update/check", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("check status = %d; body = %s", res.Code, res.Body.String())
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		status := store.GetUpdateStatus()
+		if status.State == "current" {
+			if status.Message != "Mock update complete. PhotoBook is already current." {
+				t.Fatalf("unexpected mock result: %+v", status)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mock update did not complete: %+v", status)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(store.dataDir, "update-requested")); !os.IsNotExist(err) {
+		t.Fatalf("mock request marker remained: %v", err)
+	}
+}
+
 func TestUploadAndDeletePhoto(t *testing.T) {
 	store, handler := testApp(t, "")
 	var body bytes.Buffer
@@ -195,6 +271,9 @@ func TestUploadAndDeletePhoto(t *testing.T) {
 	if state.Photos[0].DisplayURL == "" {
 		t.Fatal("uploaded photo has no display URL")
 	}
+	if state.Photos[0].BackdropURL == "" {
+		t.Fatal("uploaded photo has no backdrop URL")
+	}
 	req = httptest.NewRequest(http.MethodGet, state.Photos[0].ThumbnailURL, nil)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -215,6 +294,19 @@ func TestUploadAndDeletePhoto(t *testing.T) {
 		if config.Width > 1366 || config.Height > 768 {
 			t.Fatalf("%s display image is too large: %dx%d", fit, config.Width, config.Height)
 		}
+	}
+	req = httptest.NewRequest(http.MethodGet, state.Photos[0].BackdropURL, nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || res.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("backdrop status = %d, content type = %q", res.Code, res.Header().Get("Content-Type"))
+	}
+	backdropConfig, _, err := image.DecodeConfig(bytes.NewReader(res.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backdropConfig.Width != 1366 || backdropConfig.Height != 768 {
+		t.Fatalf("backdrop size = %dx%d, want 1366x768", backdropConfig.Width, backdropConfig.Height)
 	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/admin/photos/"+state.Photos[0].ID, nil)
@@ -237,6 +329,12 @@ func TestUploadAndDeletePhoto(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("deleted display image status = %d, want 404", res.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, state.Photos[0].BackdropURL, nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("deleted backdrop status = %d, want 404", res.Code)
 	}
 }
 
